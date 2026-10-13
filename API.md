@@ -128,7 +128,7 @@ one writer; the other receives a conflict without modifying history.
 
 | Status | Code | Meaning |
 | --- | --- | --- |
-| 400 | `INVALID_JSON`, `INVALID_QUERY` | Malformed JSON or list query |
+| 400 | `INVALID_JSON`, `INVALID_QUERY`, `INVALID_URL` | Malformed JSON/UTF-8, list query or request URL |
 | 404 | `NOT_FOUND` | Unknown endpoint, project, revision or template |
 | 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method |
 | 409 | `REVISION_CONFLICT` | Stale baseRevision |

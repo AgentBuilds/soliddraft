@@ -66,3 +66,14 @@ test('server clearly explains missing frontend build', async t => {
   assert.match(response.body, /npm run build/);
   assert.equal((await request(app, '/api/health')).status, 200);
 });
+
+test('malformed request targets return a client error instead of an internal failure', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  t.after(() => app.close());
+  for (const target of ['//[', '//%', 'http://[']) {
+    const result = await request(app, target);
+    assert.equal(result.status, 400, target);
+    assert.equal(JSON.parse(result.body).code, 'INVALID_URL');
+  }
+  assert.equal((await request(app, '/api/health')).status, 200);
+});

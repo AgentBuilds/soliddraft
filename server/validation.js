@@ -41,7 +41,9 @@ export async function readJson(req) {
     chunks.push(chunk);
   }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    // Reject broken encoding instead of saving replacement characters as user text.
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks));
+    return JSON.parse(text);
   } catch {
     throw new ApiError(400, 'Request body must contain valid JSON', 'INVALID_JSON');
   }

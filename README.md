@@ -91,6 +91,9 @@ keeping the current draft and route.
 Concurrent revision writes preserve the losing draft and offer **Reload latest
 revision**. Copy edits you need before accepting that reload. Deleting a part
 also deletes all its revisions and requires confirmation.
+Refreshing history shows the newest known snapshot without rebasing unsaved edits.
+Choosing **Use revision** on a newer snapshot advances the save base; edits to that
+snapshot can then be saved normally. Another intervening save still returns a conflict.
 
 Direct links use `#/parts`, `#/new/bracket`, `#/new/enclosure`, `#/new/spacer`,
 and `#/projects/<id>`. Parameter validation does not certify strength or printability.
@@ -98,9 +101,13 @@ and `#/projects/<id>`. Parameter validation does not certify strength or printab
 ## Tests and verification
 
 ```sh
+npm run lint
 npm test
 npm run test:acceptance
 ```
+
+`npm run lint` checks JavaScript syntax in the server, frontend, scripts and tests
+using Node; it does not require a separate lint dependency.
 
 `npm test` uses Node's built-in runner for core validation, exact request limits,
 SQLite transaction rollback/snapshot isolation, HTTP contracts and persistence,
@@ -109,7 +116,8 @@ Regressions cover decimal geometry boundaries and keyboard skip navigation
 preserving unsaved edits.
 
 `npm run test:acceptance` builds the app, starts a temporary production HTTP
-service, checks public assets/read endpoints, shuts it down, and runs the entire
+service, checks public assets and every API route including CRUD, pagination,
+concurrent saves and invalid requests, shuts it down, and runs the entire
 test suite. Tests use in-memory databases or disposable files under `test/.tmp/`
 and ephemeral ports; they preserve your saved parts. The frontend regression
 tests use a DOM adapter with the real API, not a full browser engine.
@@ -119,6 +127,12 @@ For a running service, a read-only smoke check is also available:
 ```sh
 node scripts/smoke.js http://127.0.0.1:3000
 ```
+
+For the deeper HTTP checks against a running **isolated local test server**, use
+`node scripts/qa.js http://127.0.0.1:3000`. This creates QA parts and deletes only
+those created IDs on completion; `test:acceptance` runs it in memory automatically.
+Each acceptance subprocess has a 30-second deadline; individual deep HTTP requests
+have a 5-second timeout, so stalled checks fail instead of running indefinitely.
 
 For visual and keyboard checks, open the app in a real browser: try all templates,
 submit an empty name or dimension, cancel/confirm a dimension reset, save and

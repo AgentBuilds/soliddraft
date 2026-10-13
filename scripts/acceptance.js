@@ -11,12 +11,12 @@ try {
   });
   const url = `http://127.0.0.1:${app.address().port}`;
   console.log(`Acceptance service ready at ${url} (isolated database).`);
-  await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['scripts/smoke.js', url], {
-      cwd: fileURLToPath(new URL('../', import.meta.url)), stdio: 'inherit',
+  for (const script of ['scripts/smoke.js', 'scripts/qa.js']) await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, url], {
+      cwd: fileURLToPath(new URL('../', import.meta.url)), stdio: 'inherit', timeout: 30000,
     });
     child.once('error', reject);
-    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`HTTP acceptance failed (${code})`)));
+    child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`HTTP acceptance failed (${signal || code}) in ${script}`)));
   });
 } finally {
   await new Promise(resolve => app.close(resolve));

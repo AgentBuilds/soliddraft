@@ -143,6 +143,21 @@ test('concurrent saves with the same base revision permit one writer', async t =
   assert.equal((await api(server, route)).body.total, 2);
 });
 
+test('invalid UTF-8 JSON is rejected without storing corrupted text', async t => {
+  const server = await serve(t);
+  const raw = Buffer.concat([
+    Buffer.from('{"name":"'), Buffer.from([0xc3, 0x28]),
+    Buffer.from('","templateId":"spacer"}'),
+  ]);
+  const result = await api(server, '/api/projects', { method: 'POST', raw });
+  assert.equal(result.status, 400);
+  assert.equal(result.body.code, 'INVALID_JSON');
+  assert.equal((await api(server, '/api/projects')).body.total, 0);
+  const valid = await api(server, '/api/projects', { method: 'POST', body: { name: 'O‘lcham — 部品 🛠', templateId: 'spacer' } });
+  assert.equal(valid.status, 201);
+  assert.equal(valid.body.project.name, 'O‘lcham — 部品 🛠');
+});
+
 test('SQLite projects and revisions survive server restart and an independent Node process', async t => {
   const tempRoot = fileURLToPath(new URL('./.tmp/', import.meta.url));
   await mkdir(tempRoot, { recursive: true });

@@ -73,6 +73,48 @@ async function frontend(base, fetcher = fetch) {
   throw new Error('Frontend failed to settle within one second');
 }
 
+test('all template editors save numeric form edits and block duplicate pending writes', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  for (const id of ['bracket', 'enclosure', 'spacer']) {
+    let release, writes = 0;
+    const ui = await frontend(base, async (url, options) => {
+      if (options?.method === 'POST' && url.pathname === '/api/projects') {
+        writes++;
+        await new Promise(resolve => { release = resolve; });
+      }
+      return fetch(url, options);
+    });
+    ui.run(`location.hash = '#/new/${id}'`);
+    await ui.run('route()');
+    const form = ui.document.getElementById('part-form');
+    form.listeners.input({ target: { name: 'name', value: `QA ${id}`, dataset: {} } });
+    const height = ui.run('state.draft.parameters.height') + 0.5;
+    form.listeners.input({ target: { name: 'height', value: String(height), valueAsNumber: height, dataset: { parameter: 'height' } } });
+    const saving = ui.run('savePart()');
+    assert.equal(ui.run('state.busy'), true);
+    assert.equal(ui.root.querySelector('[data-action="save"]').disabled, true);
+    await ui.run('savePart()');
+    assert.equal(writes, 1, 'repeated submit must not create duplicate projects');
+    ui.run("location.hash = '#/parts'");
+    await ui.run('route()');
+    assert.equal(ui.run('state.draft.templateId'), id, 'pending write must protect the editor');
+    release(); await saving;
+    await ui.run('loadHistory()');
+    assert.equal(ui.run('state.busy'), false);
+    assert.equal(ui.run('dirty()'), false);
+    assert.equal(ui.run('state.project.templateId'), id);
+    assert.equal(ui.run('state.project.latestRevision.parameters.height'), height);
+    assert.equal(ui.run('state.revisions.length'), 1);
+    assert.equal(ui.root.querySelector('[data-action="save"]').disabled, false);
+    const result = await (await fetch(`${base}/api/projects/${ui.run('state.project.id')}`)).json();
+    assert.equal(result.project.name, `QA ${id}`);
+    assert.equal(result.project.latestRevision.parameters.height, height);
+  }
+});
+
 test('frontend validates, saves, revises, restores, renames and opens the library through the API', async t => {
   const app = createApp({ databasePath: ':memory:' });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
@@ -151,6 +193,40 @@ test('frontend preserves drafts on network, malformed response and revision conf
   await ui.run('checkDimensions()');
   assert.match(ui.document.getElementById('form-feedback').innerHTML, /unreadable response/);
   assert.equal(ui.run('state.busy'), false);
+});
+
+test('choosing a newer external snapshot rebases saves while history refresh preserves stale draft conflicts', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  const ui = await frontend(base);
+  ui.run("state.draft.name = 'Shared bracket'");
+  await ui.run('savePart()'); await ui.run('loadHistory()');
+  const route = `${base}/api/projects/${ui.run('state.project.id')}/revisions`;
+  const external = await (await fetch(route, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parameters: { width: 70 }, description: 'External save', baseRevision: 1 }),
+  })).json();
+  ui.run('state.draft.parameters.width = 60');
+  await ui.run('loadHistory()');
+  const history = ui.document.getElementById('history-content').innerHTML;
+  assert.match(history, /Revision 2 <span class="pill">Latest/);
+  assert.doesNotMatch(history, /Revision 1 <span class="pill">Latest/);
+  assert.equal(ui.run('state.project.latestRevision.number'), 1, 'refresh must not silently rebase unsaved edits');
+  await ui.run('savePart()');
+  assert.match(ui.document.getElementById('form-feedback').innerHTML, /Reload latest revision/);
+  assert.equal(ui.run('state.draft.parameters.width'), 60);
+  ui.run('confirmAction = async () => true');
+  await ui.run(`useRevision('${external.revision.id}')`);
+  assert.equal(ui.run('state.project.latestRevision.number'), 2);
+  assert.equal(ui.run('dirty()'), false);
+  assert.match(ui.document.getElementById('save-state').textContent, /next save creates revision 3/);
+  ui.run('state.draft.parameters.width = 80');
+  await ui.run('savePart()'); await ui.run('loadHistory()');
+  assert.equal(ui.run('state.project.latestRevision.number'), 3);
+  assert.equal(ui.run('state.revisions.length'), 3);
+  assert.equal(ui.run('state.draft.parameters.width'), 80);
 });
 
 test('frontend exposes connection retry and empty library states', async t => {
@@ -240,6 +316,104 @@ test('frontend ignores stale library responses and prevents duplicate load-more 
   pending[2](reply([{ ...project, id: 'second', name: 'Second part' }])); await more;
   assert.equal(ui.run('state.projects.length'), 2);
   assert.equal(ui.document.getElementById('parts-content').attrs['aria-busy'], 'false');
+});
+
+test('library and revision pagination load all snapshots and retry failed append reads', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  let failPath;
+  const ui = await frontend(base, async (url, options) => {
+    if (failPath && url.pathname === failPath) { failPath = null; throw new Error('offline'); }
+    return fetch(url, options);
+  });
+  const projects = [];
+  for (let index = 0; index < 14; index++) {
+    const result = await (await fetch(`${base}/api/projects`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `Pagination part ${index}`, templateId: ['bracket', 'enclosure', 'spacer'][index % 3] }),
+    })).json();
+    projects.push(result.project);
+  }
+  ui.run("location.hash = '#/parts'"); await ui.run('route()'); await ui.run('loadProjects()');
+  assert.equal(ui.run('state.projects.length'), 12);
+  failPath = '/api/projects';
+  await ui.run('loadProjects(true)');
+  assert.match(ui.document.getElementById('parts-content').innerHTML, /Retry library/);
+  assert.equal(ui.run('state.projects.length'), 12);
+  assert.equal(ui.run('state.listBusy'), false);
+  await ui.run('loadProjects(true)');
+  assert.equal(ui.run('state.projects.length'), 14);
+  assert.equal(ui.run('new Set(state.projects.map(project => project.id)).size'), 14);
+  assert.equal(ui.root.querySelector('[data-action="parts-more"]'), null);
+
+  const project = projects[0];
+  for (let number = 2; number <= 12; number++) {
+    const response = await fetch(`${base}/api/projects/${project.id}/revisions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parameters: { width: 30 + number }, description: `Snapshot ${number}`, baseRevision: number - 1 }),
+    });
+    assert.equal(response.status, 201);
+  }
+  ui.run(`location.hash = '#/projects/${project.id}'`); await ui.run('route()'); await ui.run('loadHistory()');
+  assert.equal(ui.run('state.revisions.length'), 10);
+  failPath = `/api/projects/${project.id}/revisions`;
+  await ui.run('loadHistory(true)');
+  assert.match(ui.document.getElementById('history-content').innerHTML, /Retry history/);
+  assert.equal(ui.run('state.revisions.length'), 10);
+  assert.equal(ui.run('state.historyBusy'), false);
+  await ui.run('loadHistory(true)');
+  assert.equal(ui.run('state.revisions.length'), 12);
+  assert.equal(ui.run('state.revisions[11].number'), 1);
+  assert.equal(ui.root.querySelector('[data-action="history-more"]'), null);
+  await ui.run(`useRevision('${project.latestRevision.id}')`);
+  assert.equal(ui.run('state.viewedRevision'), 1);
+  assert.equal(ui.run('dirty()'), true);
+  await ui.run('savePart()');
+  assert.equal(ui.run('state.project.latestRevision.number'), 13);
+  assert.equal(ui.run('state.draft.parameters.width'), 30);
+});
+
+test('form and dialog events validate fields, preserve cancelled edits and handle missing project routes', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const ui = await frontend(`http://127.0.0.1:${app.address().port}`);
+  const input = (name, value, parameter = false) => ui.document.getElementById('part-form').listeners.input({
+    target: { name, value, valueAsNumber: value === '' ? NaN : Number(value), dataset: parameter ? { parameter: name } : {} },
+  });
+  input('name', 'Event-driven bracket'); input('width', '', true);
+  await ui.run('savePart()');
+  assert.equal(ui.document.getElementById('field-width').attrs['aria-invalid'], 'true');
+  const errorLink = { dataset: { errorField: 'width' } };
+  let prevented = false;
+  await ui.root.listeners.click({ target: { closest: selector => selector === '[data-error-field]' ? errorLink : null }, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(ui.document.activeElement, ui.document.getElementById('field-width'));
+  input('width', '45.5', true); input('description', 'Event note');
+  assert.equal(ui.run('state.draft.parameters.width'), 45.5);
+  assert.match(ui.document.getElementById('dimension-readout').innerHTML, /45.5 mm/);
+  const reset = ui.run('resetDefaults()');
+  assert.equal(ui.document.getElementById('confirm-dialog').open, true);
+  ui.root.querySelector('[data-dialog-cancel]').listeners.click(); await reset;
+  assert.equal(ui.run('state.draft.parameters.width'), 45.5);
+  const accepted = ui.run('resetDefaults()');
+  ui.document.getElementById('dialog-form').listeners.submit({ preventDefault() {} }); await accepted;
+  assert.equal(ui.run('state.draft.parameters.width'), 30);
+  assert.equal(ui.run('state.draft.description'), 'Event note');
+  await ui.run('savePart()'); await ui.run('loadHistory()');
+  const rename = ui.run('renamePart()');
+  ui.document.getElementById('rename-input').value = 'Renamed through dialog';
+  ui.document.getElementById('dialog-form').listeners.submit({ preventDefault() {} }); await rename;
+  assert.equal(ui.run('state.project.name'), 'Renamed through dialog');
+  ui.run("location.hash = '#/projects/missing'"); await ui.run('route()');
+  assert.match(ui.document.getElementById('page').innerHTML, /This part could not be found/);
+  assert.equal(ui.document.getElementById('page').attrs['aria-busy'], 'false');
+  ui.run("location.hash = '#/projects/%'"); await ui.run('route()');
+  assert.match(ui.document.getElementById('page').innerHTML, /Could not open this part/);
+  ui.run("location.hash = '#/new/spacer'"); await ui.run('route()');
+  assert.equal(ui.run('template().id'), 'spacer');
 });
 
 test('skip-to-content preserves drafts, saved parts and library routes while moving focus', async t => {

@@ -203,7 +203,8 @@ async function loadHistory(append = false) {
   }
 }
 function historyRows() {
-  return state.revisions.map(revision => `<li><div><strong>Revision ${revision.number}${revision.number === state.project.latestRevision.number ? ' <span class="pill">Latest</span>' : ''}</strong><time datetime="${escape(revision.createdAt)}">${escape(date(revision.createdAt))}</time><p>${escape(revision.description || 'No description saved.')}</p></div><button type="button" data-revision="${escape(revision.id)}" ${state.busy || revision.number === state.viewedRevision ? 'disabled' : ''} aria-label="Use revision ${revision.number}">${revision.number === state.viewedRevision ? 'In editor' : 'Use revision'}</button></li>`).join('');
+  const latestNumber = state.revisions.reduce((latest, revision) => Math.max(latest, revision.number), state.project.latestRevision.number);
+  return state.revisions.map(revision => `<li><div><strong>Revision ${revision.number}${revision.number === latestNumber ? ' <span class="pill">Latest</span>' : ''}</strong><time datetime="${escape(revision.createdAt)}">${escape(date(revision.createdAt))}</time><p>${escape(revision.description || 'No description saved.')}</p></div><button type="button" data-revision="${escape(revision.id)}" ${state.busy || revision.number === state.viewedRevision ? 'disabled' : ''} aria-label="Use revision ${revision.number}">${revision.number === state.viewedRevision ? 'In editor' : 'Use revision'}</button></li>`).join('');
 }
 function renderHistory() { $('#history-content').innerHTML = `<p class="field-hint">Use a snapshot in the editor. Saving it creates a new revision.</p><ol class="history-list">${historyRows()}</ol>${state.revisions.length < state.revisionTotal ? '<button type="button" data-action="history-more" class="load-more">Load older revisions</button>' : ''}`; }
 async function useRevision(id) {
@@ -212,6 +213,11 @@ async function useRevision(id) {
   setBusy(true);
   try {
     const { revision } = await api(`${projectPath(state.project.id)}/revisions/${encodeURIComponent(id)}`);
+    // Explicitly adopting a newer snapshot advances the save base. A history
+    // refresh alone must retain the old base so unsaved edits still conflict.
+    if (revision.number > state.project.latestRevision.number) {
+      state.project = { ...state.project, latestRevision: revision, updatedAt: revision.createdAt };
+    }
     adoptRevision(revision); success(`Revision ${revision.number} loaded into the editor. Save to create a new revision.`); $('#field-name').focus();
   } catch (error) { showError(error); } finally { setBusy(false); renderHistory(); }
 }

@@ -30,7 +30,9 @@ export function createApp({ distDir = defaultDist, dev = false, databasePath = p
       }
     };
     try {
-      const url = new URL(req.url, 'http://localhost');
+      let url;
+      try { url = new URL(req.url, 'http://localhost'); }
+      catch { throw new ApiError(400, 'Request URL is invalid', 'INVALID_URL'); }
       if (url.pathname === '/api/health') {
         method(['GET', 'HEAD']);
         store.health();
