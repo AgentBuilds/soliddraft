@@ -1,14 +1,36 @@
+# Dependencies and build output
 node_modules/
 dist/
 build/
-.env
-.farm/
-__pycache__/
-.venv/
-*.log
-.aider*
-.npm-cache/
 .next/
-coverage/
+
+# Local environment settings (keep configuration examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Runtime data and disposable test files
 data/
 test/.tmp/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+
+# Logs, coverage and caches
+*.log
+coverage/
+.nyc_output/
+.cache/
+.npm-cache/
+.eslintcache
+*.tsbuildinfo
+.farm/
+.aider*
+__pycache__/
+.venv/
+
+# Operating system files
+.DS_Store
+Thumbs.db

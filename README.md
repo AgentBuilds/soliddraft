@@ -10,6 +10,25 @@ The reference drawings are static SVG illustrations. Descriptions are stored
 with revisions. Local-model parsing, generated 3D geometry and STL downloads are
 planned features; they are not implemented yet.
 
+## Main features
+
+- Bracket, enclosure and spacer templates with editable millimetre dimensions.
+- Range and geometry validation with inline feedback and dimension readouts.
+- A saved-part library with rename, delete and paginated revision history.
+- Immutable revisions, snapshot restoration and concurrent-save conflict handling.
+- Responsive layouts, keyboard navigation and unsaved-edit protection.
+- Local SQLite persistence without accounts, API keys or external services.
+
+## Tech stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | Vanilla JavaScript ES modules, HTML, CSS and SVG reference drawings |
+| Backend | Node.js native HTTP server with a JSON REST API |
+| Storage | SQLite through Node's built-in `node:sqlite` module |
+| Build | Node.js scripts for syntax checks and static asset copying |
+| Verification | Node's built-in test runner, HTTP smoke checks and acceptance QA |
+
 ## Requirements
 
 - Node.js **22.13+**; Node 24 is recommended. Check with `node --version`.
@@ -25,7 +44,7 @@ server, API keys or external services are needed for the current workbench.
 Run from the project root:
 
 ```sh
-npm install --no-audit --no-fund --prefer-offline
+npm ci --no-audit --no-fund --prefer-offline
 npm run dev
 ```
 
@@ -36,7 +55,7 @@ after frontend edits. Stop it with **Ctrl+C**.
 If PowerShell blocks `npm.ps1`, use `npm.cmd`:
 
 ```powershell
-npm.cmd install --no-audit --no-fund --prefer-offline
+npm.cmd ci --no-audit --no-fund --prefer-offline
 npm.cmd run dev
 ```
 
@@ -59,6 +78,22 @@ serves source files directly.
 | `DB_PATH` | `data/soliddraft.sqlite` | SQLite file; relative paths use the current directory |
 
 Settings are environment variables, not an automatically loaded `.env` file.
+An optional [.env.example](.env.example) documents the defaults. Copy it to `.env`
+and edit the values, then explicitly load it with Node after building:
+
+```sh
+node --env-file=.env server/index.js
+```
+
+For development with the same file:
+
+```sh
+node --env-file=.env --watch server/index.js --dev
+```
+
+The `.env` file is ignored by Git. Existing shell environment variables take
+precedence over values loaded from the file.
+
 For example, use another port and database in PowerShell:
 
 ```powershell
@@ -163,8 +198,11 @@ select it with `DB_PATH`. The local app has no accounts or authentication.
 ## Project layout
 
 - `src/`: browser workbench and responsive styles.
+- `index.html` and `public/`: frontend entry point and favicon.
 - `server/`: native HTTP application, SQLite store, template catalogue and validation.
 - `scripts/`: syntax/build, smoke and production acceptance checks.
 - `test/`: core, storage, API and frontend regression tests.
+- `.env.example`: optional server configuration defaults.
+- `dist/` and `data/`: generated frontend assets and local databases (Git-ignored).
 - [API.md](API.md): routes, JSON contracts, pagination and geometry rules.
 - [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md): palette, typography and interaction tokens.
