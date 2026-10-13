@@ -1,10 +1,12 @@
 {
   "name": "soliddraft",
-  "version": "0.1.0",
+  "version": "0.1.0-canary.1791875097479",
   "private": true,
   "type": "module",
   "description": "A template-based CAD workbench for makers",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "node --watch server/index.js --dev",
     "build": "node scripts/build.js",
