@@ -11,7 +11,7 @@ const dirty = () => Boolean(state.draft && snapshot() !== state.baseline);
 const projectPath = id => `/api/projects/${encodeURIComponent(id)}`;
 
 root.innerHTML = `
-  <a class="skip-link" href="#content">Skip to content</a>
+  <a class="skip-link" href="#content" data-skip>Skip to content</a>
   <header class="topbar"><a class="brand" href="#/new/bracket" data-nav>${icon('cube')}<span>SolidDraft<span class="brand-dot">.</span></span></a>
     <nav aria-label="Main navigation"><a href="#/new/bracket" data-nav data-tab="workbench">Workbench</a><a href="#/parts" data-nav data-tab="parts">Saved parts</a></nav>
     <span class="edition">LOCAL WORKBENCH <span class="version">v0.1</span></span></header>
@@ -292,6 +292,8 @@ async function route(force = false) {
   } finally { if (token === routeToken) $('#page').setAttribute('aria-busy', 'false'); }
 }
 root.addEventListener('click', async event => {
+  const skipLink = event.target.closest('[data-skip]');
+  if (skipLink) { event.preventDefault(); $('#content').focus(); return; }
   const errorLink = event.target.closest('[data-error-field]');
   if (errorLink) { event.preventDefault(); document.getElementById(`field-${errorLink.dataset.errorField}`).focus(); return; }
   const link = event.target.closest('[data-nav]');

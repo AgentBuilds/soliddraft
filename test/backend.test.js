@@ -88,6 +88,7 @@ test('catalogue schemas and validation reject unsafe geometry and complete defau
   const invalid = [
     ['bracket', { width: '40' }], ['bracket', { width: null }], ['bracket', { width: -1 }],
     ['bracket', { thickness: 20 }], ['bracket', { width: 10, holeDiameter: 5 }],
+    ['bracket', { width: 14.4, thickness: 1.4, holeDiameter: 11.6 }],
     ['bracket', { script: 'anything' }], ['bracket', []], ['bracket', null],
     ['enclosure', { width: 10, wallThickness: 5 }], ['enclosure', { height: 5, wallThickness: 5 }],
     ['spacer', { outerDiameter: 8, innerDiameter: 8 }], ['spacer', { outerDiameter: 8, innerDiameter: 7 }],

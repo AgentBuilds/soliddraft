@@ -56,7 +56,11 @@ export function validateParameters(template, input = {}) {
   if (!issues.length) {
     if (template.id === 'bracket') {
       if (2 * result.thickness >= Math.min(result.height, result.depth)) issue('thickness', 'Must be less than half of either leg');
-      if (result.holeDiameter > 0 && result.holeDiameter + 2 * result.thickness >= Math.min(result.width, result.height, result.depth)) {
+      const holeSpan = result.holeDiameter + 2 * result.thickness;
+      const availableSpan = Math.min(result.width, result.height, result.depth);
+      // Decimal equality can round below the strict clearance boundary.
+      const tolerance = Number.EPSILON * Math.max(holeSpan, availableSpan);
+      if (result.holeDiameter > 0 && holeSpan >= availableSpan - tolerance) {
         issue('holeDiameter', 'Hole must leave more than a thickness of material on each side');
       }
     }

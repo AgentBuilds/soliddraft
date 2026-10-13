@@ -43,6 +43,8 @@ The normalized result includes every parameter. Cross-field checks also ensure:
 
 - Bracket thickness is less than half of either leg; nonzero screw holes leave
   more than a thickness of material on each side. A zero diameter means no holes.
+  Equality is rejected even for decimal dimensions: width `14.4`, thickness `1.4`
+  and holeDiameter `11.6` do not leave the required extra clearance.
 - Enclosure walls leave positive inner width/depth and cavity height. The template
   is open at the top; wallThickness also defines the floor thickness.
 - Spacer inner/outer diameters leave at least 1 mm radial wall thickness. Zero

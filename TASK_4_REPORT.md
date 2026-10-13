@@ -22,28 +22,38 @@
   configuration, workbench instructions, tests, storage backups and troubleshooting.
   Current features and planned model/CAD/STL features are clearly distinguished.
 - Production acceptance now runs the complete suite after build and live smoke checks.
+- Fixed the keyboard skip link triggering hash-based navigation. It now focuses
+  the workbench without changing the route or prompting to discard an edited draft.
+- Fixed bracket hole clearance accepting decimal equality because the sum rounded
+  below the strict boundary. Only floating-point precision is treated as equality;
+  positive measurable margins still pass. Added core and HTTP regression coverage.
+- Added a skip-link regression for focus, route stability and unsaved draft
+  preservation. Updated README and API documentation to describe these behaviors.
 
 ## Verification
 
 On Node v24.15.0:
 
 - `npm.cmd install --no-audit --no-fund --prefer-offline`: passed, no new dependencies.
-- `npm.cmd test`: passed after the initial regression fixes.
-- `npm.cmd run test:acceptance`: production build, live HTTP smoke and all 26 tests passed.
+- `npm.cmd test`: all 26 inherited tests passed before this completion pass.
+- The two new regressions failed against the old implementation, reproducing both
+  defects. After fixes, the focused core/frontend/backend run passed all 22 tests.
+- `npm.cmd run test:acceptance`: production build, live HTTP smoke and all 28 tests passed.
 - `git diff --check`: passed.
 
-All tests and the temporary browser-check server use isolated storage. Existing
-`data/soliddraft.sqlite` was not used or changed by verification. The temporary
-server was stopped after the browser attempt.
+All tests and the acceptance service use isolated storage and disposable ports.
+Existing `data/soliddraft.sqlite` was not used by verification. The acceptance
+service was shut down after the HTTP checks.
 
 ## Limits
 
-Real-browser verification could not run: the in-app browser was unavailable, and
-the available Chrome surface failed twice with “Unable to load browser
-request-header policy.” DOM-adapter workflow tests passed, but visual layout,
-native dialog focus and browser-console checks remain unverified.
+DOM-adapter workflow tests passed; real-browser visual layout, native dialog
+focus and browser-console checks remain unverified. The earlier task 4 browser
+attempt was blocked by unavailable browser surfaces/request-header policy.
+The README includes a manual browser verification checklist.
 
-The requested `git add -A` and `git commit -m "task 4: Polish, tests and README"`
-were attempted. Git cannot create `.git/index.lock` because `.git` is read-only
-under the workspace permissions, so no commit was created. Changes remain in the
-working tree for a writable Git environment.
+The requested `git add -A` and
+`git commit -m "task 4: Polish, tests and README"` both failed with
+`Unable to create .../.git/index.lock: Permission denied`. No task 4 commit was
+created; the completed changes remain in the working tree. The environment's
+read-only Git permissions could not be changed within this task.

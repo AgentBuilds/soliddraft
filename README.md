@@ -86,6 +86,8 @@ PORT=3100 DB_PATH=./data/workshop.sqlite npm run dev
 Navigation asks before discarding edits. Resetting edited dimensions asks for
 confirmation and retains the name and description. Closing/reloading the page
 can warn about unsaved work; drafts are not persisted until saved.
+Keyboard users can select **Skip to content** to focus the workbench while
+keeping the current draft and route.
 Concurrent revision writes preserve the losing draft and offer **Reload latest
 revision**. Copy edits you need before accepting that reload. Deleting a part
 also deletes all its revisions and requires confirmation.
@@ -103,6 +105,8 @@ npm run test:acceptance
 `npm test` uses Node's built-in runner for core validation, exact request limits,
 SQLite transaction rollback/snapshot isolation, HTTP contracts and persistence,
 concurrent saves, and frontend workflows. It requires no running service.
+Regressions cover decimal geometry boundaries and keyboard skip navigation
+preserving unsaved edits.
 
 `npm run test:acceptance` builds the app, starts a temporary production HTTP
 service, checks public assets/read endpoints, shuts it down, and runs the entire

@@ -58,6 +58,14 @@ test('spacer minimum radial wall accepts decimal equality without accepting thin
   assert.equal(validateParameters(spacer, { innerDiameter: 0 }).innerDiameter, 0);
 });
 
+test('bracket hole clearance rejects decimal equality and still accepts positive margins', () => {
+  const bracket = getTemplate('bracket');
+  const boundary = { width: 14.4, thickness: 1.4, holeDiameter: 11.6 };
+  rejectsValidation(() => validateParameters(bracket, boundary), 'holeDiameter');
+  assert.equal(validateParameters(bracket, { ...boundary, width: 14.400001 }).width, 14.400001);
+  rejectsValidation(() => validateParameters(bracket, { ...boundary, width: 14.399999 }), 'holeDiameter');
+});
+
 test('request objects and trimmed text respect exact size limits', () => {
   for (const body of [null, [], 'text', false]) rejectsValidation(() => validateObject(body, ['name']));
   rejectsValidation(() => validateObject({ extra: true }, ['name']));
