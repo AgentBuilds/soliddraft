@@ -23,6 +23,12 @@ npm start
 npm test
 ```
 
+Run `npm run test:acceptance` for a production build, an automatically started
+HTTP readiness/smoke check and frontend workflow regression tests. These checks
+use an isolated in-memory database and ephemeral port, preserving saved parts.
+Frontend tests use a small DOM adapter with the real API; visual layout and
+browser-console verification require a separate real-browser check.
+
 With the service running, verify its public assets and read endpoints using
 `node scripts/smoke.js http://127.0.0.1:3000`.
 
@@ -54,11 +60,17 @@ examples. Tests use isolated databases and verify HTTP requests plus persistence
 across server restarts and in a separate Node process. No sample user projects are
 inserted; the three template definitions supply useful starting parameters.
 
-The page supports template selection and a session-only request draft. Reference
-illustrations are static SVG drawings, not generated CAD. Local model integration,
-editable 3D geometry, STL downloads and frontend save/history controls are left
-for subsequent tasks. Parameter validation and revision storage are available through
-the API. No external services are required.
+The workbench supports all three templates, named drafts, editable dimensions,
+inline validation, saved parts, rename/delete confirmations and paginated revision
+history. Selecting an older revision loads its snapshot; saving appends a new
+revision. Conflicting writes preserve your draft and offer to reload the latest
+snapshot. Navigation warns before discarding unsaved changes. Direct links use
+`#/parts`, `#/new/bracket` and `#/projects/<id>`.
+
+Reference illustrations are static SVG drawings, not generated CAD. Request text
+is saved with revisions; it does not generate parameters. Local model integration,
+editable 3D geometry and STL downloads remain subsequent tasks. No external
+services are required.
 
 This scaffold has no third-party runtime or build dependencies. `npm install`
 creates the lockfile without registry downloads; `npm run build` assembles the

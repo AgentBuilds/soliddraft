@@ -9,6 +9,7 @@
     "dev": "node --watch server/index.js --dev",
     "build": "node scripts/build.js",
     "start": "node server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:acceptance": "npm run build && node scripts/acceptance.js && node --test test/frontend.test.js"
   }
 }
