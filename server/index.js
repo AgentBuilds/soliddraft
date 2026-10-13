@@ -13,6 +13,7 @@ const server = createApp(options).listen(port, host, () => {
 });
 server.on('error', (error) => {
   console.error(`SolidDraft failed to start: ${error.message}`);
+  server.close();
   process.exitCode = 1;
 });
 for (const signal of ['SIGINT', 'SIGTERM']) {

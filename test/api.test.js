@@ -20,8 +20,9 @@ async function request(app, url, method = 'GET') {
   return result;
 }
 
-test('health, catalogue and unknown API routes have the expected contract', async () => {
-  const app = createApp();
+test('health, catalogue and unknown API routes have the expected contract', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  t.after(() => app.close());
   const health = await request(app, '/api/health');
   assert.equal(health.status, 200);
   assert.match(health.headers['Content-Type'], /application\/json/);
@@ -34,11 +35,12 @@ test('health, catalogue and unknown API routes have the expected contract', asyn
   for (const item of body.templates) assert.ok(item.name && item.reference && item.dimensions);
   const missing = await request(app, '/api/missing');
   assert.equal(missing.status, 404);
-  assert.deepEqual(JSON.parse(missing.body), { error: 'API endpoint not found' });
+  assert.deepEqual(JSON.parse(missing.body), { error: 'API endpoint not found', code: 'NOT_FOUND' });
 });
 
-test('static serving has correct content types and exposes only public assets', async () => {
-  const app = createApp({ dev: true, distDir: fileURLToPath(new URL('../', import.meta.url)) });
+test('static serving has correct content types and exposes only public assets', async t => {
+  const app = createApp({ databasePath: ':memory:', dev: true, distDir: fileURLToPath(new URL('../', import.meta.url)) });
+  t.after(() => app.close());
   for (const [url, type] of [['/', 'text/html'], ['/src/main.js', 'text/javascript'], ['/src/styles.css', 'text/css'], ['/favicon.svg', 'image/svg+xml']]) {
     const response = await request(app, url);
     assert.equal(response.status, 200, url);
@@ -56,8 +58,9 @@ test('static serving has correct content types and exposes only public assets', 
   assert.equal(post.headers.Allow, 'GET, HEAD');
 });
 
-test('server clearly explains missing frontend build', async () => {
-  const app = createApp({ distDir: fileURLToPath(new URL('./missing-dist/', import.meta.url)) });
+test('server clearly explains missing frontend build', async t => {
+  const app = createApp({ databasePath: ':memory:', distDir: fileURLToPath(new URL('./missing-dist/', import.meta.url)) });
+  t.after(() => app.close());
   const response = await request(app, '/');
   assert.equal(response.status, 503);
   assert.match(response.body, /npm run build/);

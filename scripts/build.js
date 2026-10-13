@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-for (const file of ['src/main.js', 'server/app.js', 'server/index.js']) {
+for (const file of ['src/main.js', 'server/app.js', 'server/index.js', 'server/store.js', 'server/templates.js', 'server/validation.js']) {
   const check = spawnSync(process.execPath, ['--check', path.join(root, file)], { stdio: 'inherit' });
   if (check.error) throw check.error;
   if (check.status !== 0) process.exit(check.status || 1);

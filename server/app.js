@@ -2,13 +2,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { templates, getTemplate, validateParameters } from './templates.js';
+import { createStore } from './store.js';
+import { ApiError, readJson, validateObject, textField, pagination } from './validation.js';
 
 const defaultDist = fileURLToPath(new URL('../dist/', import.meta.url));
-const templates = [
-  { id: 'bracket', name: 'Bracket', description: 'Mount and support at a right angle.', reference: 'L-shaped mounting bracket', dimensions: '40 × 40 × 30 mm' },
-  { id: 'enclosure', name: 'Enclosure', description: 'Give your electronics a home.', reference: 'Open electronics enclosure', dimensions: '80 × 60 × 30 mm' },
-  { id: 'spacer', name: 'Spacer', description: 'Keep a precise distance between parts.', reference: 'Cylindrical through-hole spacer', dimensions: 'Ø 16 × 12 mm' },
-];
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
@@ -17,22 +15,86 @@ const assets = new Map([
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
 ]);
 
-export function createApp({ distDir = defaultDist, dev = false } = {}) {
-  return createServer(async (req, res) => {
+export function createApp({ distDir = defaultDist, dev = false, databasePath = process.env.DB_PATH } = {}) {
+  const store = createStore(databasePath);
+  const server = createServer(async (req, res) => {
     const send = (status, type, body) => {
       res.writeHead(status, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache' });
       res.end(req.method === 'HEAD' ? undefined : body);
     };
     const json = (status, body) => send(status, 'application/json; charset=utf-8', JSON.stringify(body));
+    const method = allowed => {
+      if (!allowed.includes(req.method)) {
+        res.setHeader('Allow', allowed.join(', '));
+        throw new ApiError(405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
+      }
+    };
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (!['GET', 'HEAD'].includes(req.method)) {
-        res.setHeader('Allow', 'GET, HEAD');
-        return json(405, { error: 'Method not allowed' });
+      if (url.pathname === '/api/health') {
+        method(['GET', 'HEAD']);
+        store.health();
+        return json(200, { status: 'ok', service: 'soliddraft', version: '0.1.0' });
       }
-      if (url.pathname === '/api/health') return json(200, { status: 'ok', service: 'soliddraft', version: '0.1.0' });
-      if (url.pathname === '/api/templates') return json(200, { templates, units: 'mm' });
-      if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return json(404, { error: 'API endpoint not found' });
+      if (url.pathname === '/api/templates') {
+        method(['GET', 'HEAD']);
+        return json(200, { templates, units: 'mm' });
+      }
+      const templateRoute = url.pathname.match(/^\/api\/templates\/([^/]+)(\/validate)?$/);
+      if (templateRoute) {
+        method(templateRoute[2] ? ['POST'] : ['GET', 'HEAD']);
+        const template = getTemplate(templateRoute[1]);
+        if (!templateRoute[2]) return json(200, { template, units: 'mm' });
+        const body = await readJson(req);
+        validateObject(body, ['parameters']);
+        return json(200, { templateId: template.id, templateVersion: template.version, parameters: validateParameters(template, body.parameters), units: 'mm' });
+      }
+      if (url.pathname === '/api/projects') {
+        method(['GET', 'HEAD', 'POST']);
+        if (req.method !== 'POST') return json(200, store.listProjects(pagination(url.searchParams)));
+        const body = await readJson(req);
+        validateObject(body, ['name', 'templateId', 'description', 'parameters']);
+        const name = textField(body.name, 'name', 120, { required: true });
+        const templateId = textField(body.templateId, 'templateId', 30, { required: true });
+        const template = getTemplate(templateId);
+        const description = textField(body.description === undefined ? '' : body.description, 'description', 4000);
+        const project = store.createProject({ name, template, description, parameters: validateParameters(template, body.parameters) });
+        res.setHeader('Location', `/api/projects/${project.id}`);
+        return json(201, { project });
+      }
+      const projectRoute = url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(revisions)(?:\/([^/]+))?)?$/);
+      if (projectRoute) {
+        const [, id, revisions, revisionId] = projectRoute;
+        method(revisionId ? ['GET', 'HEAD'] : revisions ? ['GET', 'HEAD', 'POST'] : ['GET', 'HEAD', 'PATCH', 'DELETE']);
+        if (!revisions) {
+          if (req.method === 'DELETE') { store.deleteProject(id); return send(204, 'application/json; charset=utf-8', undefined); }
+          if (req.method === 'PATCH') {
+            store.getProject(id);
+            const body = await readJson(req);
+            validateObject(body, ['name']);
+            return json(200, { project: store.renameProject(id, textField(body.name, 'name', 120, { required: true })) });
+          }
+          return json(200, { project: store.getProject(id) });
+        }
+        if (revisionId) return json(200, { revision: store.getRevision(id, revisionId) });
+        if (req.method !== 'POST') return json(200, store.listRevisions(id, pagination(url.searchParams)));
+        const project = store.getProject(id);
+        const body = await readJson(req);
+        validateObject(body, ['description', 'parameters', 'baseRevision']);
+        if (!Object.hasOwn(body, 'parameters')) throw new ApiError(422, 'parameters are required when saving a revision', 'VALIDATION_ERROR');
+        if (body.baseRevision !== undefined && (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 1)) {
+          throw new ApiError(422, 'baseRevision must be a positive integer', 'VALIDATION_ERROR');
+        }
+        const template = getTemplate(project.templateId);
+        const description = body.description === undefined ? undefined : textField(body.description, 'description', 4000);
+        const revision = store.createRevision(id, {
+          templateVersion: template.version, description, parameters: validateParameters(template, body.parameters), baseRevision: body.baseRevision,
+        });
+        res.setHeader('Location', `/api/projects/${id}/revisions/${revision.id}`);
+        return json(201, { revision });
+      }
+      if (url.pathname === '/api' || url.pathname.startsWith('/api/')) throw new ApiError(404, 'API endpoint not found', 'NOT_FOUND');
+      method(['GET', 'HEAD']);
       const asset = assets.get(url.pathname);
       if (!asset) return send(404, 'text/plain; charset=utf-8', 'Not found');
       const [relative, type] = asset;
@@ -46,9 +108,18 @@ export function createApp({ distDir = defaultDist, dev = false } = {}) {
         send(404, 'text/plain; charset=utf-8', 'Not found');
       }
     } catch (error) {
+      if (error instanceof ApiError) {
+        if (!res.headersSent) json(error.status, { error: error.message, code: error.code, ...(error.details ? { details: error.details } : {}) });
+        else res.end();
+        return;
+      }
       console.error('Request failed:', error.message);
-      if (!res.headersSent) send(500, 'application/json; charset=utf-8', JSON.stringify({ error: 'Internal server error' }));
+      if (!res.headersSent) json(500, { error: 'Internal server error', code: 'INTERNAL_ERROR' });
       else res.end();
     }
   });
+  server.on('close', () => store.close());
+  server.requestTimeout = 15000;
+  server.headersTimeout = 10000;
+  return server;
 }
