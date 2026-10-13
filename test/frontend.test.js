@@ -242,24 +242,50 @@ test('frontend ignores stale library responses and prevents duplicate load-more 
   assert.equal(ui.document.getElementById('parts-content').attrs['aria-busy'], 'false');
 });
 
-test('skip-to-content moves focus without navigating or discarding an edited draft', async t => {
+test('skip-to-content preserves drafts, saved parts and library routes while moving focus', async t => {
   const app = createApp({ databasePath: ':memory:' });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => app.close(resolve)));
   const ui = await frontend(`http://127.0.0.1:${app.address().port}`);
   ui.run("state.draft.name = 'Keep my keyboard draft'; state.draft.parameters.width = 70");
-  const before = ui.run('snapshot()');
-  const hash = ui.run('location.hash');
-  let prevented = false;
   const skip = ui.root.querySelector('[data-skip]');
   assert.ok(skip, 'the skip link uses the focus handler');
-  await ui.root.listeners.click({
-    target: { closest: selector => selector === '[data-skip]' ? skip : null },
-    preventDefault() { prevented = true; },
-  });
-  assert.equal(prevented, true, 'the browser must not change the route hash');
-  assert.equal(ui.document.activeElement, ui.document.getElementById('content'));
-  assert.equal(ui.run('location.hash'), hash);
-  assert.equal(ui.run('snapshot()'), before);
+  ui.run("confirmAction = () => { throw new Error('Skip link must not ask to discard edits'); }");
+  async function activateSkip() {
+    const before = ui.run('JSON.stringify(state)');
+    const hash = ui.run('location.hash');
+    const token = ui.run('routeToken');
+    const page = ui.document.getElementById('page').innerHTML;
+    skip.focus();
+    let prevented = false;
+    await ui.root.listeners.click({
+      target: { closest: selector => selector === '[data-skip]' ? skip : null },
+      preventDefault() { prevented = true; },
+    });
+    assert.equal(prevented, true, 'the browser must not change the route hash');
+    assert.equal(ui.document.activeElement, ui.document.getElementById('content'));
+    assert.equal(ui.run('location.hash'), hash);
+    assert.equal(ui.run('routeToken'), token);
+    assert.equal(ui.run('JSON.stringify(state)'), before);
+    assert.equal(ui.document.getElementById('page').innerHTML, page);
+    assert.equal(ui.document.getElementById('confirm-dialog').open, undefined);
+  }
+  await activateSkip();
   assert.equal(ui.run('dirty()'), true);
+
+  await ui.run('savePart()');
+  await ui.run('loadHistory()');
+  assert.match(ui.run('location.hash'), /^#\/projects\//);
+  assert.equal(ui.run('dirty()'), false);
+  await activateSkip();
+  ui.run('state.draft.parameters.width = 80');
+  await activateSkip();
+  assert.equal(ui.run('dirty()'), true);
+
+  await ui.run('savePart()');
+  ui.run("location.hash = '#/parts'");
+  await ui.run('route()');
+  await ui.run('loadProjects()');
+  assert.equal(ui.run('state.projects.length'), 1);
+  await activateSkip();
 });
