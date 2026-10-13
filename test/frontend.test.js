@@ -165,3 +165,79 @@ test('frontend exposes connection retry and empty library states', async t => {
   await ui.run('route()'); await ui.run('loadProjects()');
   assert.match(ui.document.getElementById('parts-content').innerHTML, /A home for your first part/);
 });
+
+test('frontend cancels draft navigation and protects edited dimensions when resetting defaults', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const ui = await frontend(`http://127.0.0.1:${app.address().port}`);
+  ui.run("state.draft.name = 'Keep this draft'; state.draft.description = 'Keep this note'; state.draft.parameters.width = 70");
+  ui.run("confirmAction = async () => false; location.hash = '#/parts'");
+  await ui.run('route()');
+  assert.equal(ui.run('location.hash'), '#/new/bracket');
+  assert.equal(ui.run('state.draft.parameters.width'), 70);
+  assert.equal(ui.run('dirty()'), true);
+  await ui.run('resetDefaults()');
+  assert.equal(ui.run('state.draft.parameters.width'), 70);
+  ui.run('confirmAction = async () => true');
+  await ui.run('resetDefaults()');
+  assert.equal(ui.run('state.draft.parameters.width'), 30);
+  assert.equal(ui.document.getElementById('field-width').value, 30);
+  assert.equal(ui.run('state.draft.name'), 'Keep this draft');
+  assert.equal(ui.run('state.draft.description'), 'Keep this note');
+  assert.equal(ui.run('dirty()'), true);
+  assert.match(ui.document.getElementById('announcement').textContent, /defaults restored/);
+});
+
+test('frontend highlights empty dimensions without writing and escapes saved user text', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  const ui = await frontend(base);
+  ui.run("state.draft.name = 'a'.repeat(121); state.draft.description = 'b'.repeat(4001)");
+  await ui.run('savePart()');
+  assert.match(ui.document.getElementById('error-name').textContent, /120 characters/);
+  assert.match(ui.document.getElementById('error-description').textContent, /4000 characters/);
+  ui.run("state.draft.name = '<img src=x onerror=alert(1)>'; state.draft.description = '<script>evil()</script>'; state.draft.parameters.width = null");
+  await ui.run('savePart()');
+  assert.equal(ui.document.getElementById('field-width').attrs['aria-invalid'], 'true');
+  assert.equal((await (await fetch(`${base}/api/projects`)).json()).total, 0);
+  ui.run('state.draft.parameters.width = 35.25');
+  await ui.run('savePart()');
+  await ui.run('loadHistory()');
+  assert.match(ui.document.getElementById('history-content').innerHTML, /&lt;script&gt;evil\(\)&lt;\/script&gt;/);
+  ui.run("location.hash = '#/parts'");
+  await ui.run('route()'); await ui.run('loadProjects()');
+  const html = ui.document.getElementById('parts-content').innerHTML;
+  assert.match(html, /&lt;img/);
+  assert.doesNotMatch(html, /<img/);
+});
+
+test('frontend ignores stale library responses and prevents duplicate load-more requests', async t => {
+  const app = createApp({ databasePath: ':memory:' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  // Real catalogue/project writes; deferred list reads make ordering deterministic.
+  const ui = await frontend(base);
+  ui.run("state.draft.name = 'First part'"); await ui.run('savePart()');
+  const project = JSON.parse(ui.run('JSON.stringify(state.project)'));
+  ui.run('renderLibrary()');
+  const pending = [];
+  ui.context.fetch = () => new Promise(resolve => pending.push(resolve));
+  const older = ui.run('loadProjects()');
+  assert.equal(ui.root.querySelector('[data-action="parts-refresh"]').disabled, true);
+  const newer = ui.run('loadProjects()');
+  const reply = projects => ({ status: 200, ok: true, json: async () => ({ projects, total: 2 }) });
+  pending[1](reply([project])); await newer;
+  pending[0](reply([])); await older;
+  assert.equal(ui.run('state.projects.length'), 1);
+  assert.equal(ui.root.querySelector('[data-action="parts-refresh"]').disabled, false);
+  const more = ui.run('loadProjects(true)');
+  await ui.run('loadProjects(true)');
+  assert.equal(pending.length, 3, 'one append read for repeated activation');
+  pending[2](reply([{ ...project, id: 'second', name: 'Second part' }])); await more;
+  assert.equal(ui.run('state.projects.length'), 2);
+  assert.equal(ui.document.getElementById('parts-content').attrs['aria-busy'], 'false');
+});

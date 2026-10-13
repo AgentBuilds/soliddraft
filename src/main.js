@@ -1,6 +1,6 @@
 const root = document.querySelector('#root');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-const state = { templates: [], project: null, draft: null, baseline: '', viewedRevision: null, busy: false, historyBusy: false, route: '', projects: [], revisions: [], total: 0, revisionTotal: 0 };
+const state = { templates: [], project: null, draft: null, baseline: '', viewedRevision: null, busy: false, historyBusy: false, listBusy: false, route: '', projects: [], revisions: [], total: 0, revisionTotal: 0 };
 let routeToken = 0, listToken = 0, historyToken = 0, dialogResolve;
 const $ = selector => root.querySelector(selector);
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true" class="icon" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${({ plus: '<path d="M12 5v14M5 12h14"/>', arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>', check: '<path d="m5 12 4 4L19 6"/>', save: '<path d="M5 3h12l4 4v14H3V3zm2 0v6h10V3M7 21v-8h10v8"/>', cube: '<path d="m3 7 9-5 9 5v10l-9 5-9-5zm0 0 9 5 9-5M12 12v10"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', folder: '<path d="M3 6h7l2 3h9v11H3z"/>' })[name] || ''}</svg>`;
@@ -144,11 +144,22 @@ function adoptRevision(revision) {
 function validateLocal(includeName) {
   const details = [];
   if (includeName && !state.draft.name.trim()) details.push({ field: 'name', message: 'Enter a name for your part.' });
+  if (includeName && state.draft.name.length > 120) details.push({ field: 'name', message: 'Keep the part name to 120 characters or fewer.' });
+  if (state.draft.description.length > 4000) details.push({ field: 'description', message: 'Keep the description to 4000 characters or fewer.' });
   for (const [key, rule] of Object.entries(template().parameters)) {
     const value = state.draft.parameters[key];
     if (!Number.isFinite(value) || value < rule.min || value > rule.max) details.push({ field: `parameters.${key}`, message: `${rule.label}: enter a number from ${rule.min} to ${rule.max} mm.` });
   }
   if (details.length) throw Object.assign(new Error('Check the highlighted fields.'), { details });
+}
+async function resetDefaults() {
+  if (state.busy || dialogResolve) return;
+  const rules = template().parameters;
+  const changed = Object.entries(rules).some(([key, rule]) => state.draft.parameters[key] !== rule.default);
+  if (changed && !await confirmAction({ title: 'Reset dimensions?', copy: 'Replace your edited dimensions with this template’s defaults. Your part name, description and saved revisions stay intact.', action: 'Reset dimensions' })) return;
+  if (state.busy) return;
+  for (const [key, rule] of Object.entries(rules)) { state.draft.parameters[key] = rule.default; document.getElementById(`field-${key}`).value = rule.default; }
+  clearErrors(); updateDraftStatus(); updateReadout(); announce('Template defaults restored to the draft.');
 }
 async function checkDimensions() {
   if (state.busy) return;
@@ -172,7 +183,7 @@ async function savePart() {
 }
 
 async function loadHistory(append = false) {
-  if (!state.project || !$('#history-content')) return;
+  if (!state.project || !$('#history-content') || (append && state.historyBusy)) return;
   const token = ++historyToken, id = state.project.id, offset = append ? state.revisions.length : 0;
   state.historyBusy = true; $('#history-content').setAttribute('aria-busy', 'true');
   const refresh = $('[data-action="history-refresh"]'); if (refresh) refresh.disabled = true;
@@ -233,7 +244,10 @@ function projectRows() {
   return `<ul class="project-list">${state.projects.map(project => `<li><a href="#/projects/${encodeURIComponent(project.id)}" data-nav><span class="part-symbol">${icon('cube')}</span><span class="project-info"><strong>${escape(project.name)}</strong><span>${escape(state.templates.find(item => item.id === project.templateId)?.name || project.templateId)} / Revision ${project.latestRevision.number}</span></span><time datetime="${escape(project.updatedAt)}">${escape(date(project.updatedAt))}</time>${icon('arrow')}</a></li>`).join('')}</ul>`;
 }
 async function loadProjects(append = false) {
+  if (!$('#parts-content') || (append && state.listBusy)) return;
   const token = ++listToken, offset = append ? state.projects.length : 0;
+  state.listBusy = true;
+  $('[data-action="parts-refresh"]').disabled = true;
   if (!append) { state.projects = []; $('#parts-content').innerHTML = '<p class="loading">Loading your saved parts…</p>'; }
   else { $('[data-action="parts-more"]').disabled = true; $('[data-action="parts-more"]').textContent = 'Loading…'; }
   $('#parts-content').setAttribute('aria-busy', 'true');
@@ -245,7 +259,12 @@ async function loadProjects(append = false) {
   } catch (error) {
     if (token !== listToken || !$('#parts-content')) return;
     $('#parts-content').innerHTML = `${append ? projectRows() : ''}<div class="feedback error"><h3>Could not load saved parts</h3><p>${escape(error.message)}</p><button type="button" data-action="${append ? 'parts-more' : 'parts-refresh'}">Retry library</button></div>`;
-  } finally { if (token === listToken && $('#parts-content')) $('#parts-content').setAttribute('aria-busy', 'false'); }
+  } finally {
+    if (token === listToken && $('#parts-content')) {
+      state.listBusy = false; $('#parts-content').setAttribute('aria-busy', 'false');
+      $('[data-action="parts-refresh"]').disabled = false;
+    }
+  }
 }
 
 async function route(force = false) {
@@ -254,7 +273,7 @@ async function route(force = false) {
   if (hash === state.route && !force) return;
   if (state.busy || dialogResolve || (!force && !await mayDiscard())) { history.replaceState(null, '', state.route || '#/new/bracket'); return; }
   const token = ++routeToken; ++historyToken; ++listToken;
-  state.route = hash; state.draft = null; state.project = null; state.historyBusy = false; state.revisions = [];
+  state.route = hash; state.draft = null; state.project = null; state.historyBusy = false; state.listBusy = false; state.revisions = [];
   const library = hash === '#/parts';
   for (const link of root.querySelectorAll('[data-tab]')) { const active = link.dataset.tab === (library ? 'parts' : 'workbench'); if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }
   $('#page').setAttribute('aria-busy', 'true');
@@ -282,11 +301,11 @@ root.addEventListener('click', async event => {
   const revision = event.target.closest('[data-revision]');
   if (revision && !revision.disabled) { void useRevision(revision.dataset.revision); return; }
   const control = event.target.closest('[data-action]');
-  if (!control || control.disabled || state.busy) return;
+  if (!control || control.disabled || state.busy || dialogResolve) return;
   switch (control.dataset.action) {
     case 'new': if (await mayDiscard()) { state.baseline = snapshot(); if (location.hash === '#/new/bracket') { newDraft('bracket'); $('#field-name').focus(); } else location.hash = '#/new/bracket'; } break;
     case 'validate': void checkDimensions(); break;
-    case 'defaults': for (const [key, rule] of Object.entries(template().parameters)) { state.draft.parameters[key] = rule.default; document.getElementById(`field-${key}`).value = rule.default; } clearErrors(); updateDraftStatus(); updateReadout(); announce('Template defaults restored to the draft.'); break;
+    case 'defaults': void resetDefaults(); break;
     case 'rename': void renamePart(); break;
     case 'delete': void deletePart(); break;
     case 'reload': if (await mayDiscard()) { state.baseline = snapshot(); void route(true); } break;

@@ -65,8 +65,13 @@ export function validateParameters(template, input = {}) {
         issue('wallThickness', 'Must leave an open interior and positive cavity height');
       }
     }
-    if (template.id === 'spacer' && result.outerDiameter - result.innerDiameter < 2) {
-      issue('innerDiameter', 'Must leave at least 1 mm of radial wall thickness');
+    if (template.id === 'spacer') {
+      // Decimal inputs such as 3.01 - 1.01 can round just below 2 in binary.
+      // Allow only floating-point rounding error, not measurably thinner walls.
+      const tolerance = Number.EPSILON * Math.max(result.outerDiameter, result.innerDiameter, 2);
+      if (result.outerDiameter - result.innerDiameter < 2 - tolerance) {
+        issue('innerDiameter', 'Must leave at least 1 mm of radial wall thickness');
+      }
     }
   }
   if (issues.length) throw new ApiError(422, 'Invalid template parameters', 'VALIDATION_ERROR', issues);
